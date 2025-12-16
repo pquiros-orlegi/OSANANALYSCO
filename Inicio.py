@@ -145,7 +145,7 @@ if "usuario_actual" not in st.session_state:
 USUARIOS_VALIDOS = {
     "admin": "1234",
     "Ruben.puerta": "Orlegi2025",
-    "PelayoQuiros": "Orlegi2025",
+    "Pelayo.quiros": "Orlegi2025",
     "Israel.villaseñor": "Orlegi2025",
     "Jose.riestra": "Orlegi2025",
     "Gerardo": "Orlegi2025"
