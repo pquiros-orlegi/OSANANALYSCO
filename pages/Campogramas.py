@@ -1025,14 +1025,14 @@ function(params) {{
 # =========================
 def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame = None):
     """
-    Tabla consistente y con columnas autoajustadas al texto (local y web):
-    - Usa autoSizeColumns() tras renderizado (con delays).
-    - suppressColumnVirtualisation=True para que AgGrid renderice todas las columnas y pueda medir.
-    - NO usa flex ni widths fijos (salvo pin de Jugador).
+    Auto-ajuste real por texto (local + cloud):
+    - Evita display:flex en cellStyle/headerStyle (mejor para autoSizeColumns).
+    - AutoSize robusto: onGridReady + onFirstDataRendered + retries.
+    - suppressColumnVirtualisation=True para medir TODAS las columnas.
     """
     tabla = df_tabla.copy()
 
-    # 🔢 Cualquier métrica cuyo nombre tiene paréntesis → 2 decimales
+    # 🔢 métricas con paréntesis → 2 decimales
     for col in tabla.columns:
         if "(" in col and ")" in col:
             tabla[col] = pd.to_numeric(tabla[col], errors="coerce").round(2)
@@ -1040,15 +1040,13 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
     if df_base is None:
         df_base = tabla
 
-    # --- Mover 'Jugador' a la primera columna si existe ---
+    # --- Jugador primero ---
     if "Jugador" in tabla.columns:
         cols = ["Jugador"] + [c for c in tabla.columns if c != "Jugador"]
         tabla = tabla[cols]
 
     if "Minutos jugados" in tabla.columns:
-        tabla["Minutos jugados"] = pd.to_numeric(
-            tabla["Minutos jugados"], errors="coerce"
-        ).astype("Int64")
+        tabla["Minutos jugados"] = pd.to_numeric(tabla["Minutos jugados"], errors="coerce").astype("Int64")
 
     gb = GridOptionsBuilder.from_dataframe(
         tabla,
@@ -1057,59 +1055,52 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         enablePivot=True
     )
 
-    # ✅ Default colDef SIN flex (para que autosize mande)
+    # ✅ Estilos “medibles” para autosize (sin flex inline)
+    base_cell_style = {
+        'backgroundColor': '#09202E',
+        'color': 'white',
+        'textAlign': 'center',
+        'verticalAlign': 'middle',
+        'border': '1px solid #ffffff22',
+        'padding': '0px',
+        'fontSize': '10px'
+    }
+    base_header_style = {
+        'backgroundColor': '#09202E',
+        'color': 'white',
+        'fontWeight': 'bold',
+        'borderBottom': '1px solid #ffffff22',
+        'fontSize': '11px',
+        'padding': '0px',
+        'textAlign': 'center',
+        'verticalAlign': 'middle'
+    }
+
     gb.configure_default_column(
-        wrapText=True,
-        autoHeight=True,
+        wrapText=False,      # 👈 mejor para autosize (si quieres wrap, lo hacemos por CSS aparte)
+        autoHeight=False,    # 👈 mejor para autosize estable
         resizable=True,
         sortable=True,
         filter=True,
-        minWidth=80,     # evita columnas demasiado estrechas
-        maxWidth=420,    # evita columnas gigantes (sube si quieres)
-        cellStyle={
-            'backgroundColor': '#09202E',
-            'color': 'white',
-            'textAlign': 'center',
-            'verticalAlign': 'middle',
-            'display': 'flex',
-            'alignItems': 'center',
-            'justifyContent': 'center',
-            'border': '1px solid #ffffff22',
-            'padding': '0px',
-            'fontSize': '10px'
-        },
-        headerStyle={
-            'backgroundColor': '#09202E',
-            'color': 'white',
-            'fontWeight': 'bold',
-            'borderBottom': '1px solid #ffffff22',
-            'fontSize': '11px',
-            'padding': '0px',
-            'textAlign': 'center',
-            'verticalAlign': 'middle',
-            'display': 'flex',
-            'alignItems': 'center',
-            'justifyContent': 'center'
-        }
+        minWidth=70,
+        maxWidth=520,        # sube si quieres más
+        cellStyle=base_cell_style,
+        headerStyle=base_header_style
     )
 
-    # --- Fijar columna 'Jugador' a la izquierda si existe ---
-    # (sin width fijo; también la autosizearemos)
+    # Fijar Jugador a la izquierda (sin width fijo)
     if "Jugador" in tabla.columns:
         gb.configure_column("Jugador", pinned="left", lockPinned=True)
 
-    # ✅ Clave para que autoSize mida TODAS las columnas (especialmente en Cloud)
+    # ✅ Clave para medir muchas columnas
     gb.configure_grid_options(
         suppressSizeToFit=True,
-        suppressColumnVirtualisation=True,     # 👈 CLAVE
+        suppressColumnVirtualisation=True,
         alwaysShowHorizontalScroll=True
     )
 
-    # Estilo general: todas las columnas de percentil de Score
-    cols_percentil_score = [
-        c for c in tabla.columns
-        if c.startswith("Percentil Score ")
-    ]
+    # ====== Tus coloreados (igual que antes) ======
+    cols_percentil_score = [c for c in tabla.columns if c.startswith("Percentil Score ")]
     for col in cols_percentil_score:
         gb.configure_column(col, cellStyle=CELLSTYLE_SCORE_JS)
 
@@ -1125,16 +1116,14 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         cols_portero = [c for c in tabla.columns if "(GK_PORTERO)" in c]
         for col in cols_portero:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
 
         cols_ataj = [c for c in tabla.columns if "(GK_ATAJADOR)" in c]
         for col in cols_ataj:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Oranges", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Oranges", float(s.min()), float(s.max())))
 
         pies_neg_tokens = ["Acciones Fallidas", "Pérdidas"]
         cols_pies = [c for c in tabla.columns if "(GK_PIES)" in c]
@@ -1160,16 +1149,14 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         cols_lat_gen = [c for c in tabla.columns if "(LAT_GENERICO)" in c]
         for col in cols_lat_gen:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
 
         cols_lat_def = [c for c in tabla.columns if "(LAT_DEFENSIVO)" in c]
         for col in cols_lat_def:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
 
         lat_of_neg = ["Acciones Fallidas"]
         cols_lat_of = [c for c in tabla.columns if "(LAT_OFENSIVO)" in c]
@@ -1195,16 +1182,14 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         cols_dfc_gen = [c for c in tabla.columns if "(DFC_GENERICO)" in c]
         for col in cols_dfc_gen:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
 
         cols_dfc_def = [c for c in tabla.columns if "(DFC_DEFENSIVO)" in c]
         for col in cols_dfc_def:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
 
         comb_neg = ["Pérdidas de Balón", "Acciones Fallidas en Campo Propio"]
         cols_dfc_comb = [c for c in tabla.columns if "(DFC_COMBINATIVO)" in c]
@@ -1232,30 +1217,26 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         cols_mc_gen = [c for c in tabla.columns if "(MC_GENERICO)" in c]
         for col in cols_mc_gen:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
 
         cols_mc_cont = [c for c in tabla.columns if "(MC_CONTENCION)" in c]
         for col in cols_mc_cont:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
 
         cols_mc_of = [c for c in tabla.columns if "(MC_OFENSIVO)" in c]
         for col in cols_mc_of:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Greens", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Greens", float(s.min()), float(s.max())))
 
         cols_mc_b2b = [c for c in tabla.columns if "(MC_B2B)" in c]
         for col in cols_mc_b2b:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Purples", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Purples", float(s.min()), float(s.max())))
 
     # ----- EXTREMOS -----
     if key in ["tabla_extremos_izq", "tabla_extremos_der"]:
@@ -1271,30 +1252,26 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         cols_ext_gen = [c for c in tabla.columns if "(EXT_GENERICO)" in c]
         for col in cols_ext_gen:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
 
         cols_ext_w = [c for c in tabla.columns if "(EXT_WIDEOUT)" in c]
         for col in cols_ext_w:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Greens", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Greens", float(s.min()), float(s.max())))
 
         cols_ext_inc = [c for c in tabla.columns if "(EXT_INCORPORACION)" in c]
         for col in cols_ext_inc:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
 
         cols_ext_comb = [c for c in tabla.columns if "(EXT_COMBINATIVO)" in c]
         for col in cols_ext_comb:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Purples", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Purples", float(s.min()), float(s.max())))
 
     # ----- DELANTEROS -----
     if key == "tabla_delanteros":
@@ -1308,13 +1285,11 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         cols_del = [c for c in tabla.columns if "(DEL_DELANTERO)" in c]
         for col in cols_del:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if s.dropna().empty:
-                continue
-            gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
+            if not s.dropna().empty:
+                gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
 
     cols_del9 = [c for c in tabla.columns if "(DEL_9)" in c]
     inv_del9_tokens = ["xG por Goles sin Penaltis"]
-
     for col in cols_del9:
         s = pd.to_numeric(df_base[col], errors="coerce")
         if s.dropna().empty:
@@ -1327,23 +1302,21 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
 
     grid_options = gb.build()
 
-    # ✅ Autosize robusto (local + cloud)
-    grid_options["onFirstDataRendered"] = JsCode("""
-function(params) {
+    # ✅ AutoSize MUY robusto (cuando hay muchas columnas y estilos)
+    grid_options["onGridReady"] = JsCode("""
+function(params){
     const allCols = params.columnApi.getAllColumns().map(c => c.getColId());
-
-    // 1) primer autosize
-    params.columnApi.autoSizeColumns(allCols, false);
-
-    // 2) segundo autosize (cloud / fonts / layout)
-    setTimeout(() => {
-        params.columnApi.autoSizeColumns(allCols, false);
-    }, 350);
-
-    // 3) tercero por seguridad (cloud a veces tarda más)
-    setTimeout(() => {
-        params.columnApi.autoSizeColumns(allCols, false);
-    }, 900);
+    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 50);
+    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 250);
+    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 800);
+}
+""")
+    grid_options["onFirstDataRendered"] = JsCode("""
+function(params){
+    const allCols = params.columnApi.getAllColumns().map(c => c.getColId());
+    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 50);
+    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 250);
+    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 800);
 }
 """)
 
@@ -1371,17 +1344,20 @@ function(params) {
                 "overflow-x": "auto !important",
                 "overflow-y": "auto !important"
             },
+            # ✅ aquí sí usamos flex (CSS), no en cellStyle inline (más compatible con autosize)
+            ".ag-cell, .ag-header-cell-label": {
+                "display": "flex !important",
+                "align-items": "center !important",
+                "justify-content": "center !important",
+            },
             ".ag-theme-streamlit, .ag-root, .ag-cell, .ag-header-cell": {
                 "font-family": "Arial, sans-serif !important"
             },
             ".ag-header-cell-label": {
-                "white-space": "nowrap !important",
-                "justify-content": "center !important",
-                "align-items": "center !important",
-                "display": "flex !important"
+                "white-space": "nowrap !important"
             },
             ".ag-cell": {
-                "white-space": "normal !important",
+                "white-space": "nowrap !important",
                 "line-height": "12px !important"
             },
             ".ag-theme-streamlit": {
@@ -1389,6 +1365,7 @@ function(params) {
             }
         }
     )
+
 
 
 
