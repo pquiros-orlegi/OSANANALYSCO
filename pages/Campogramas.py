@@ -1025,9 +1025,9 @@ function(params) {{
 # =========================
 def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame = None):
     """
-    df_tabla -> lo que se muestra (normalmente top-10).
-    df_base  -> pool completo de esa posición para calcular los min/max de gradiente.
-    Si df_base es None, se usa df_tabla (comportamiento antiguo).
+    Tabla consistente local vs cloud:
+    - NO usa autoSizeColumns (muy dependiente del render/virtualización).
+    - Usa flex + minWidth + algunas columnas con width fijo.
     """
     tabla = df_tabla.copy()
 
@@ -1038,7 +1038,6 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
 
     if df_base is None:
         df_base = tabla
-
 
     # --- Mover 'Jugador' a la primera columna si existe ---
     if "Jugador" in tabla.columns:
@@ -1057,10 +1056,15 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         enablePivot=True
     )
 
+    # ✅ Default colDef estable (NO autosize). Flex reparte ancho, minWidth evita columnas enanas.
     gb.configure_default_column(
         wrapText=True,
         autoHeight=True,
         resizable=True,
+        sortable=True,
+        filter=True,
+        minWidth=90,     # 👈 clave
+        flex=1,          # 👈 clave
         cellStyle={
             'backgroundColor': '#09202E',
             'color': 'white',
@@ -1088,24 +1092,43 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         }
     )
 
-    # --- Fijar columna 'Jugador' a la izquierda si existe ---
+    # ✅ Columnas clave con ancho fijo (se ven igual en local/web)
     if "Jugador" in tabla.columns:
-        gb.configure_column(
-            "Jugador",
-            pinned="left",
-            lockPinned=True
-        )
+        gb.configure_column("Jugador", pinned="left", lockPinned=True, width=170, minWidth=170, flex=0)
 
+    for c, w in [
+        ("Equipo", 120),
+        ("Nombre_Liga", 115),
+        ("Categoría_Liga", 115),
+        ("Pos", 70),
+        ("Edad", 70),
+        ("Altura", 80),
+        ("Valor_Mercado", 120),
+        ("Pie bueno", 110),
+        ("Minutos jugados", 120),
+        ("Fin de contrato", 115),
+        ("Nacionalidad", 115),
+        ("Temporada", 90),
+    ]:
+        if c in tabla.columns:
+            gb.configure_column(c, width=w, minWidth=w, flex=0)
+
+    # ✅ Columnas "Score/Percentil" suelen ser cortas → ancho fijo para que no bailen
+    for col in tabla.columns:
+        if col.startswith("Score "):
+            gb.configure_column(col, width=110, minWidth=110, flex=0)
+        if col.startswith("Percentil "):
+            gb.configure_column(col, width=125, minWidth=125, flex=0)
+
+    # Grid options (consistentes)
     gb.configure_grid_options(
         suppressSizeToFit=True,
-        suppressColumnVirtualisation=False
+        suppressColumnVirtualisation=False,  # puedes dejarlo False (mejor rendimiento)
+        alwaysShowHorizontalScroll=True
     )
 
     # Estilo general: todas las columnas de percentil de Score
-    cols_percentil_score = [
-        c for c in tabla.columns
-        if c.startswith("Percentil Score ")
-    ]
+    cols_percentil_score = [c for c in tabla.columns if c.startswith("Percentil Score ")]
     for col in cols_percentil_score:
         gb.configure_column(col, cellStyle=CELLSTYLE_SCORE_JS)
 
@@ -1309,35 +1332,19 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
             gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
 
     cols_del9 = [c for c in tabla.columns if "(DEL_9)" in c]
-    inv_del9_tokens = ["xG por Goles sin Penaltis"]  # 👈 métricas “menos es mejor”
+    inv_del9_tokens = ["xG por Goles sin Penaltis"]
 
     for col in cols_del9:
         s = pd.to_numeric(df_base[col], errors="coerce")
         if s.dropna().empty:
             continue
-
         vmin, vmax = float(s.min()), float(s.max())
-
         if any(tok in col for tok in inv_del9_tokens):
             gb.configure_column(col, cellStyle=crear_cmap_js("Reds", vmin, vmax, invert=True))
         else:
             gb.configure_column(col, cellStyle=crear_cmap_js("Reds", vmin, vmax))
 
-
     grid_options = gb.build()
-
-    grid_options["onFirstDataRendered"] = JsCode("""
-        function(params) {
-            var allCols = [];
-            params.columnApi.getAllColumns().forEach(function(col) {
-                allCols.push(col.getColId());
-            });
-            params.columnApi.autoSizeColumns(allCols, false);
-            setTimeout(function() {
-                params.columnApi.autoSizeColumns(allCols, false);
-            }, 250);
-        }
-    """)
 
     num_rows = len(tabla)
     grid_height = 60 + 30 * min(num_rows, 10)
@@ -1363,6 +1370,9 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
                 "overflow-x": "auto !important",
                 "overflow-y": "auto !important"
             },
+            ".ag-theme-streamlit, .ag-root, .ag-cell, .ag-header-cell": {
+                "font-family": "Arial, sans-serif !important"  # 👈 iguala local/web
+            },
             ".ag-header-cell-label": {
                 "white-space": "nowrap !important",
                 "justify-content": "center !important",
@@ -1378,6 +1388,7 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
             }
         }
     )
+
 
 
 # =========================
