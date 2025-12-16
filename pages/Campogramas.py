@@ -1023,6 +1023,9 @@ function(params) {{
 # =========================
 # HELPER: MOSTRAR TABLA CON AgGrid
 # =========================
+# =========================
+# HELPER: MOSTRAR TABLA CON AgGrid
+# =========================
 def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame = None):
     """
     Todas las columnas a 200px (estable local/web) manteniendo TODOS los gradientes y estilos.
@@ -1079,7 +1082,7 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
     gb.configure_default_column(
         wrapText=False,
         autoHeight=False,
-        resizable=True,     # puedes poner False si no quieres que el usuario cambie anchos
+        resizable=True,
         sortable=True,
         filter=True,
         width=200,
@@ -1107,6 +1110,19 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         alwaysShowHorizontalScroll=True
     )
 
+    # =========================
+    # ✅ FIX: NEGATIVOS (menos = mejor) -> invert=True
+    # =========================
+    NEGATIVE_TOKENS = [
+        "PÉRDIDAS", "PERDIDAS",
+        "ACCIONES FALLIDAS",
+        "FALLIDAS",
+    ]
+
+    def is_negative_metric(colname: str) -> bool:
+        up = str(colname).upper()
+        return any(tok in up for tok in NEGATIVE_TOKENS)
+
     # ====== Tus coloreados (igual que antes) ======
     cols_percentil_score = [c for c in tabla.columns if c.startswith("Percentil Score ")]
     for col in cols_percentil_score:
@@ -1133,15 +1149,16 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
             if not s.dropna().empty:
                 gb.configure_column(col, cellStyle=crear_cmap_js("Oranges", float(s.min()), float(s.max())))
 
-        pies_neg_tokens = ["Acciones Fallidas", "Pérdidas"]
         cols_pies = [c for c in tabla.columns if "(GK_PIES)" in c]
         for col in cols_pies:
             s = pd.to_numeric(df_base[col], errors="coerce")
             if s.dropna().empty:
                 continue
             vmin, vmax = float(s.min()), float(s.max())
-            if any(tok in col for tok in pies_neg_tokens):
-                gb.configure_column(col, cellStyle=crear_cmap_js("Greens_inv", vmin, vmax))
+
+            # ✅ aquí estaba el bug: "Greens_inv" -> invert=True
+            if is_negative_metric(col):
+                gb.configure_column(col, cellStyle=crear_cmap_js("Greens", vmin, vmax, invert=True))
             else:
                 gb.configure_column(col, cellStyle=crear_cmap_js("Greens", vmin, vmax))
 
@@ -1166,15 +1183,16 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
             if not s.dropna().empty:
                 gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
 
-        lat_of_neg = ["Acciones Fallidas"]
         cols_lat_of = [c for c in tabla.columns if "(LAT_OFENSIVO)" in c]
         for col in cols_lat_of:
             s = pd.to_numeric(df_base[col], errors="coerce")
             if s.dropna().empty:
                 continue
             vmin, vmax = float(s.min()), float(s.max())
-            if any(tok in col for tok in lat_of_neg):
-                gb.configure_column(col, cellStyle=crear_cmap_js("Greens_inv", vmin, vmax))
+
+            # ✅ bug fix aquí también
+            if is_negative_metric(col):
+                gb.configure_column(col, cellStyle=crear_cmap_js("Greens", vmin, vmax, invert=True))
             else:
                 gb.configure_column(col, cellStyle=crear_cmap_js("Greens", vmin, vmax))
 
@@ -1199,15 +1217,16 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
             if not s.dropna().empty:
                 gb.configure_column(col, cellStyle=crear_cmap_js("Reds", float(s.min()), float(s.max())))
 
-        comb_neg = ["Pérdidas de Balón", "Acciones Fallidas en Campo Propio"]
         cols_dfc_comb = [c for c in tabla.columns if "(DFC_COMBINATIVO)" in c]
         for col in cols_dfc_comb:
             s = pd.to_numeric(df_base[col], errors="coerce")
             if s.dropna().empty:
                 continue
             vmin, vmax = float(s.min()), float(s.max())
-            if any(tok in col for tok in comb_neg):
-                gb.configure_column(col, cellStyle=crear_cmap_js("Greens_inv", vmin, vmax))
+
+            # ✅ bug fix aquí también
+            if is_negative_metric(col):
+                gb.configure_column(col, cellStyle=crear_cmap_js("Greens", vmin, vmax, invert=True))
             else:
                 gb.configure_column(col, cellStyle=crear_cmap_js("Greens", vmin, vmax))
 
@@ -1355,6 +1374,7 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
             }
         }
     )
+
 
 
 
