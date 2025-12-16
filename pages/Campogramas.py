@@ -1025,9 +1025,10 @@ function(params) {{
 # =========================
 def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame = None):
     """
-    Tabla consistente local vs cloud:
-    - NO usa autoSizeColumns (muy dependiente del render/virtualización).
-    - Usa flex + minWidth + algunas columnas con width fijo.
+    Tabla consistente y con columnas autoajustadas al texto (local y web):
+    - Usa autoSizeColumns() tras renderizado (con delays).
+    - suppressColumnVirtualisation=True para que AgGrid renderice todas las columnas y pueda medir.
+    - NO usa flex ni widths fijos (salvo pin de Jugador).
     """
     tabla = df_tabla.copy()
 
@@ -1056,15 +1057,15 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         enablePivot=True
     )
 
-    # ✅ Default colDef estable (NO autosize). Flex reparte ancho, minWidth evita columnas enanas.
+    # ✅ Default colDef SIN flex (para que autosize mande)
     gb.configure_default_column(
         wrapText=True,
         autoHeight=True,
         resizable=True,
         sortable=True,
         filter=True,
-        minWidth=90,     # 👈 clave
-        flex=1,          # 👈 clave
+        minWidth=80,     # evita columnas demasiado estrechas
+        maxWidth=420,    # evita columnas gigantes (sube si quieres)
         cellStyle={
             'backgroundColor': '#09202E',
             'color': 'white',
@@ -1092,43 +1093,23 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         }
     )
 
-    # ✅ Columnas clave con ancho fijo (se ven igual en local/web)
+    # --- Fijar columna 'Jugador' a la izquierda si existe ---
+    # (sin width fijo; también la autosizearemos)
     if "Jugador" in tabla.columns:
-        gb.configure_column("Jugador", pinned="left", lockPinned=True, width=170, minWidth=170, flex=0)
+        gb.configure_column("Jugador", pinned="left", lockPinned=True)
 
-    for c, w in [
-        ("Equipo", 120),
-        ("Nombre_Liga", 115),
-        ("Categoría_Liga", 115),
-        ("Pos", 70),
-        ("Edad", 70),
-        ("Altura", 80),
-        ("Valor_Mercado", 120),
-        ("Pie bueno", 110),
-        ("Minutos jugados", 120),
-        ("Fin de contrato", 115),
-        ("Nacionalidad", 115),
-        ("Temporada", 90),
-    ]:
-        if c in tabla.columns:
-            gb.configure_column(c, width=w, minWidth=w, flex=0)
-
-    # ✅ Columnas "Score/Percentil" suelen ser cortas → ancho fijo para que no bailen
-    for col in tabla.columns:
-        if col.startswith("Score "):
-            gb.configure_column(col, width=110, minWidth=110, flex=0)
-        if col.startswith("Percentil "):
-            gb.configure_column(col, width=125, minWidth=125, flex=0)
-
-    # Grid options (consistentes)
+    # ✅ Clave para que autoSize mida TODAS las columnas (especialmente en Cloud)
     gb.configure_grid_options(
         suppressSizeToFit=True,
-        suppressColumnVirtualisation=False,  # puedes dejarlo False (mejor rendimiento)
+        suppressColumnVirtualisation=True,     # 👈 CLAVE
         alwaysShowHorizontalScroll=True
     )
 
     # Estilo general: todas las columnas de percentil de Score
-    cols_percentil_score = [c for c in tabla.columns if c.startswith("Percentil Score ")]
+    cols_percentil_score = [
+        c for c in tabla.columns
+        if c.startswith("Percentil Score ")
+    ]
     for col in cols_percentil_score:
         gb.configure_column(col, cellStyle=CELLSTYLE_SCORE_JS)
 
@@ -1346,6 +1327,26 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
 
     grid_options = gb.build()
 
+    # ✅ Autosize robusto (local + cloud)
+    grid_options["onFirstDataRendered"] = JsCode("""
+function(params) {
+    const allCols = params.columnApi.getAllColumns().map(c => c.getColId());
+
+    // 1) primer autosize
+    params.columnApi.autoSizeColumns(allCols, false);
+
+    // 2) segundo autosize (cloud / fonts / layout)
+    setTimeout(() => {
+        params.columnApi.autoSizeColumns(allCols, false);
+    }, 350);
+
+    // 3) tercero por seguridad (cloud a veces tarda más)
+    setTimeout(() => {
+        params.columnApi.autoSizeColumns(allCols, false);
+    }, 900);
+}
+""")
+
     num_rows = len(tabla)
     grid_height = 60 + 30 * min(num_rows, 10)
 
@@ -1371,7 +1372,7 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
                 "overflow-y": "auto !important"
             },
             ".ag-theme-streamlit, .ag-root, .ag-cell, .ag-header-cell": {
-                "font-family": "Arial, sans-serif !important"  # 👈 iguala local/web
+                "font-family": "Arial, sans-serif !important"
             },
             ".ag-header-cell-label": {
                 "white-space": "nowrap !important",
