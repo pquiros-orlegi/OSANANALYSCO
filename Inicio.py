@@ -144,8 +144,13 @@ if "usuario_actual" not in st.session_state:
 # Credenciales válidas (provisional)
 USUARIOS_VALIDOS = {
     "admin": "1234",
-    "usuario": "password"
+    "Ruben.puerta": "Orlegi2025",
+    "PelayoQuiros": "Orlegi2025",
+    "Israel.villaseñor": "Orlegi2025",
+    "Jose.riestra": "Orlegi2025",
+    "Gerardo": "Orlegi2025"
 }
+
 
 
 # -------------------------------
