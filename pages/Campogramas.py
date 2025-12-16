@@ -1025,10 +1025,7 @@ function(params) {{
 # =========================
 def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame = None):
     """
-    Auto-ajuste real por texto (local + cloud):
-    - Evita display:flex en cellStyle/headerStyle (mejor para autoSizeColumns).
-    - AutoSize robusto: onGridReady + onFirstDataRendered + retries.
-    - suppressColumnVirtualisation=True para medir TODAS las columnas.
+    Todas las columnas a 200px (estable local/web) manteniendo TODOS los gradientes y estilos.
     """
     tabla = df_tabla.copy()
 
@@ -1046,7 +1043,9 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         tabla = tabla[cols]
 
     if "Minutos jugados" in tabla.columns:
-        tabla["Minutos jugados"] = pd.to_numeric(tabla["Minutos jugados"], errors="coerce").astype("Int64")
+        tabla["Minutos jugados"] = pd.to_numeric(
+            tabla["Minutos jugados"], errors="coerce"
+        ).astype("Int64")
 
     gb = GridOptionsBuilder.from_dataframe(
         tabla,
@@ -1055,7 +1054,7 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         enablePivot=True
     )
 
-    # ✅ Estilos “medibles” para autosize (sin flex inline)
+    # ✅ Estilos base (los tuyos)
     base_cell_style = {
         'backgroundColor': '#09202E',
         'color': 'white',
@@ -1076,26 +1075,35 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         'verticalAlign': 'middle'
     }
 
+    # ✅ TODAS las columnas a 200px (y que no cambien)
     gb.configure_default_column(
-        wrapText=False,      # 👈 mejor para autosize (si quieres wrap, lo hacemos por CSS aparte)
-        autoHeight=False,    # 👈 mejor para autosize estable
-        resizable=True,
+        wrapText=False,
+        autoHeight=False,
+        resizable=True,     # puedes poner False si no quieres que el usuario cambie anchos
         sortable=True,
         filter=True,
-        minWidth=70,
-        maxWidth=520,        # sube si quieres más
+        width=200,
+        minWidth=200,
+        maxWidth=200,
         cellStyle=base_cell_style,
         headerStyle=base_header_style
     )
 
-    # Fijar Jugador a la izquierda (sin width fijo)
+    # Fijar Jugador a la izquierda (también 200px)
     if "Jugador" in tabla.columns:
-        gb.configure_column("Jugador", pinned="left", lockPinned=True)
+        gb.configure_column(
+            "Jugador",
+            pinned="left",
+            lockPinned=True,
+            width=200,
+            minWidth=200,
+            maxWidth=200
+        )
 
-    # ✅ Clave para medir muchas columnas
+    # Grid options estables (sin autosize)
     gb.configure_grid_options(
         suppressSizeToFit=True,
-        suppressColumnVirtualisation=True,
+        suppressColumnVirtualisation=False,
         alwaysShowHorizontalScroll=True
     )
 
@@ -1302,24 +1310,7 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
 
     grid_options = gb.build()
 
-    # ✅ AutoSize MUY robusto (cuando hay muchas columnas y estilos)
-    grid_options["onGridReady"] = JsCode("""
-function(params){
-    const allCols = params.columnApi.getAllColumns().map(c => c.getColId());
-    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 50);
-    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 250);
-    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 800);
-}
-""")
-    grid_options["onFirstDataRendered"] = JsCode("""
-function(params){
-    const allCols = params.columnApi.getAllColumns().map(c => c.getColId());
-    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 50);
-    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 250);
-    setTimeout(() => params.columnApi.autoSizeColumns(allCols, false), 800);
-}
-""")
-
+    # ❌ NO autosize (porque queremos 200 fijo)
     num_rows = len(tabla)
     grid_height = 60 + 30 * min(num_rows, 10)
 
@@ -1344,7 +1335,6 @@ function(params){
                 "overflow-x": "auto !important",
                 "overflow-y": "auto !important"
             },
-            # ✅ aquí sí usamos flex (CSS), no en cellStyle inline (más compatible con autosize)
             ".ag-cell, .ag-header-cell-label": {
                 "display": "flex !important",
                 "align-items": "center !important",
@@ -1365,6 +1355,7 @@ function(params){
             }
         }
     )
+
 
 
 
