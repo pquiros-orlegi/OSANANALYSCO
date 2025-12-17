@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from mplsoccer import Pitch
 from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 import base64
+from matplotlib.patches import FancyBboxPatch, Rectangle
+
 
 FONDO_PATH = "data/Captura de pantalla 2025-11-24 a las 16.52.04.png"
 
@@ -1563,12 +1565,163 @@ def construir_pool_percentiles(df, temporada_sel, categoria_sel, liga_sel):
     aplicar_en_subset(mask_del, SCORES_DELANTERO)
 
     return df_pool
+def _pct_border_color(pct):
+    if pct is None:
+        return "#999999"
+    try:
+        p = float(pct)
+    except:
+        return "#999999"
+
+    if p >= 80:
+        return "#2aa84a"   # verde
+    if p >= 50:
+        return "#f2c200"   # amarillo
+    return "#d7263d"       # rojo
 
 
-# =========================
-# DIBUJAR CAMPOGRAMA
-# =========================
+def draw_position_table(
+    ax, x, y, title, rows,
+    width=30,             # 👈 más pequeña
+    row_h=3.6,            # 👈 más compacta
+    pct_w=5.0,
+    pad=0.55,
+    title_gap=2.0,        # separación entre título y tarjeta
+):
+    """
+    rows = [(jugador, equipo, percentil), ...]
+    Coordenadas pitch statsbomb: x 0-120, y 0-80
+    """
+
+    n = len(rows)
+    if n == 0:
+        return
+
+    total_h = n * row_h
+
+    # --- TÍTULO ARRIBA (fuera de la tarjeta) ---
+    # TÍTULO ARRIBA – fondo azul, borde oscuro, texto blanco
+    title_box = FancyBboxPatch(
+        (x - width/2 + 1.0, y + total_h/2 + title_gap - 1.3),
+        width - 2.0,        # ancho del título
+        2.4,                # alto del título
+        boxstyle="round,pad=0.25,rounding_size=0.9",
+        linewidth=1.2,
+        edgecolor="#0e2841",   # contorno oscuro
+        facecolor="#0e2841",   # azul Orlegi
+        zorder=1000,
+        clip_on=False
+    )
+    ax.add_patch(title_box)
+
+    ax.text(
+        x,
+        y + total_h/2 + title_gap,
+        str(title).upper(),
+        ha="center",
+        va="center",
+        fontsize=9.0,
+        fontweight="bold",
+        color="white",
+        zorder=1001,
+        clip_on=False
+    )
+
+
+    # --- TARJETA BASE (sin header interno) ---
+    card = FancyBboxPatch(
+        (x - width/2, y - total_h/2),
+        width, total_h,
+        boxstyle="round,pad=0.28,rounding_size=1.0",
+        linewidth=0.9,
+        edgecolor="#00000022",
+        facecolor="white",
+        alpha=0.96,
+        zorder=999,
+        clip_on=False
+    )
+    ax.add_patch(card)
+
+    # Columnas
+    x_left = x - width/2
+    x_right = x + width/2
+    x_pct_left = x_right - pct_w
+    x_team_right = x_pct_left
+
+    # Separador vertical antes de percentil
+    ax.plot(
+        [x_pct_left, x_pct_left],
+        [y - total_h/2, y + total_h/2],
+        color="#00000022", linewidth=1,
+        zorder=1001,
+        clip_on=False
+    )
+
+    # Filas
+    top_y = y + total_h/2
+    for i, (jug, eq, pct) in enumerate(rows):
+        y_row_bottom = top_y - (i + 1) * row_h
+        y_row_center = y_row_bottom + row_h/2
+
+        # línea separadora horizontal
+        ax.plot(
+            [x_left, x_right],
+            [y_row_bottom, y_row_bottom],
+            color="#00000022", linewidth=1,
+            zorder=1001,
+            clip_on=False
+        )
+
+        # Jugador
+        ax.text(
+            x_left + pad, y_row_center,
+            str(jug),
+            ha="left", va="center",
+            fontsize=7.2, fontweight="bold",
+            color="#111",
+            zorder=1002,
+            clip_on=False
+        )
+
+        # Equipo
+        ax.text(
+            x_team_right - pad, y_row_center,
+            str(eq),
+            ha="right", va="center",
+            fontsize=6.9,
+            color="#111",
+            zorder=1002,
+            clip_on=False
+        )
+
+        # Badge percentil blanco con borde de color
+        border = _pct_border_color(pct)
+
+        badge = FancyBboxPatch(
+            (x_pct_left + 0.55, y_row_bottom + 0.55),
+            pct_w - 1.10, row_h - 1.10,
+            boxstyle="round,pad=0.12,rounding_size=0.55",
+            linewidth=2.0,
+            edgecolor=border,
+            facecolor="white",
+            zorder=1003,
+            clip_on=False
+        )
+        ax.add_patch(badge)
+
+        ax.text(
+            x_pct_left + pct_w/2, y_row_center,
+            "" if pct is None else str(int(pct)),
+            ha="center", va="center",
+            fontsize=8.0, fontweight="bold",
+            color="#111",
+            zorder=1004,
+            clip_on=False
+        )
+
+
 def dibujar_campograma_defensivo(rankings, score_cols, temporada, liga_str):
+
     pitch = Pitch(
         pitch_type="statsbomb",
         pitch_color="#d0f0c0",
@@ -1578,18 +1731,23 @@ def dibujar_campograma_defensivo(rankings, score_cols, temporada, liga_str):
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     fig.patch.set_alpha(0)
 
+    # ✅ MÁRGENES EXTRA para que NO SE CORTE nada
+    # statsbomb suele ser x: 0-120, y:0-80
+    ax.set_xlim(-6, 126)
+    ax.set_ylim(-6, 86)
+
     posiciones_campo = {
-        "Portero": (5, 42.5),
-        "Lateral izquierdo": (25, 10),
+        "Portero": (5, 40),
+        "Lateral izquierdo": (25, 75),
         "DFC Izquierdo": (25, 25),
         "DFC Derecho": (25, 55),
-        "Lateral derecho": (25, 70),
+        "Lateral derecho": (25, 2),
         "MC Contención": (60, 20),
         "MC Box to Box": (60, 60),
-        "MC Ofensivo": (75, 42.5),
-        "Extremo Izquierdo": (100, 10),
-        "Delantero": (110, 42.5),
-        "Extremo Derecho": (100, 70),
+        "MC Ofensivo": (75, 40),
+        "Extremo Izquierdo": (100, 75),
+        "Delantero": (110, 40),
+        "Extremo Derecho": (100, 5),
     }
 
     if all(df_pos.empty for df_pos in rankings.values()):
@@ -1606,37 +1764,32 @@ def dibujar_campograma_defensivo(rankings, score_cols, temporada, liga_str):
             continue
 
         x, y = posiciones_campo[pos_nombre]
-        top3 = df_pos.head(3)
 
-        listado = "\n".join([
-            f"{row['Jugador']} - {row['Equipo']}"
-            for _, row in top3.iterrows()
-        ])
+        score_col = score_cols.get(pos_nombre)
+        pct_col = f"Percentil {score_col}" if score_col else None
 
-        ax.text(
-            x,
-            y - 4,
-            listado,
-            ha="center",
-            va="top",
-            fontsize=8,
-            bbox=dict(
-                facecolor="white",
-                alpha=0.85,
-                edgecolor="none",
-                boxstyle="round,pad=0.25"
-            )
-        )
+        top_df = df_pos.head(3)
 
-        ax.text(
-            x,
-            y + 2,
-            pos_nombre,
-            ha="center",
-            va="bottom",
-            fontsize=8,
-            fontweight="bold",
-            color="black"
+        rows = []
+        for _, r in top_df.iterrows():
+            jugador = r.get("Jugador", "")
+            equipo = r.get("Equipo", "")
+            pct = None
+            if pct_col and pct_col in top_df.columns:
+                val = r.get(pct_col, None)
+                if pd.notna(val):
+                    pct = int(val)
+            rows.append((jugador, equipo, pct))
+
+        # ✅ Caja pequeña + título arriba
+        draw_position_table(
+            ax=ax,
+            x=x, y=y,
+            title=pos_nombre,
+            rows=rows,
+            width=30,     # 👈 más pequeña
+            row_h=3.6,    # 👈 más compacta
+            pct_w=5.0
         )
 
     ax.set_title(
@@ -1647,6 +1800,8 @@ def dibujar_campograma_defensivo(rankings, score_cols, temporada, liga_str):
     )
 
     return fig
+
+
 
 
 # =========================
@@ -1815,6 +1970,25 @@ def app():
         opciones_nacionalidad = []
         nacionalidad_sel = []
 
+    # =========================
+    # Equipo
+    # =========================
+    if "Equipo" in df_pool.columns and df_pool["Equipo"].notna().any():
+        opciones_equipo = sorted(df_pool["Equipo"].dropna().unique())
+
+        if "filtro_equipo" not in st.session_state:
+            st.session_state["filtro_equipo"] = []
+
+        equipo_sel = st.sidebar.multiselect(
+            "Equipo",
+            options=opciones_equipo,
+            key="filtro_equipo"
+        )
+    else:
+        opciones_equipo = []
+        equipo_sel = []
+
+
     # ===== Función de callback para resetear filtros de segmentación =====
     def reset_segmentacion():
         # Minutos
@@ -1838,6 +2012,11 @@ def app():
         # Nacionalidad
         if "filtro_nacionalidad" in st.session_state:
             st.session_state["filtro_nacionalidad"] = []
+
+                # Equipo
+        if "filtro_equipo" in st.session_state:
+            st.session_state["filtro_equipo"] = []
+
 
         # Fin de contrato
         if "Fin de contrato" in df_pool.columns and df_pool["Fin de contrato"].notna().any():
@@ -1901,6 +2080,13 @@ def app():
         df_filtrado = df_filtrado[
             df_filtrado["Nacionalidad"].isin(nacionalidad_sel)
         ]
+
+        # Filtro por Equipo
+    if equipo_sel:
+        df_filtrado = df_filtrado[
+            df_filtrado["Equipo"].isin(equipo_sel)
+        ]
+
 
 
     if pool_info.get("liga"):
