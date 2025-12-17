@@ -1021,10 +1021,16 @@ function(params) {{
 """)
 
 
+import re
 
-# =========================
-# HELPER: MOSTRAR TABLA CON AgGrid
-# =========================
+def limpiar_header(colname: str) -> str:
+    return re.sub(r"\s*\(.*?\)", "", str(colname)).strip()
+
+
+
+
+
+
 # =========================
 # HELPER: MOSTRAR TABLA CON AgGrid
 # =========================
@@ -1058,6 +1064,7 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         enableValue=True,
         enablePivot=True
     )
+    
 
     # ✅ Estilos base (los tuyos)
     base_cell_style = {
@@ -1331,6 +1338,15 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
 
     grid_options = gb.build()
 
+        # =========================
+    # Limpieza de headers (quitar lo que hay entre paréntesis)
+    # =========================
+    for coldef in grid_options.get("columnDefs", []):
+        field = coldef.get("field")
+        if field:
+            coldef["headerName"] = limpiar_header(field)
+
+
     # ❌ NO autosize (porque queremos 200 fijo)
     num_rows = len(tabla)
     grid_height = 60 + 30 * min(num_rows, 10)
@@ -1378,6 +1394,14 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
     )
 
 
+import re
+
+def limpiar_header(colname: str) -> str:
+    """
+    Elimina todo lo que esté entre paréntesis y limpia espacios.
+    Ej: "% Pases (GK_PORTERO)" -> "% Pases"
+    """
+    return re.sub(r"\s*\(.*?\)", "", colname).strip()
 
 
 
