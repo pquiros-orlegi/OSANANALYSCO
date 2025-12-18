@@ -9,3 +9,6 @@ mplsoccer>=1.2
 streamlit-aggrid>=0.3.4
 
 pyarrow>=14.0
+
+PyMuPDF>=1.23
+
