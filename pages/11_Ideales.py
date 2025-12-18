@@ -77,7 +77,7 @@ def listar_pdfs_11_ideales():
     Busca PDFs tipo '11_IDEALES_I_MES_I_2025.pdf' en la carpeta assets
     y devuelve un dict {etiqueta bonita -> ruta_pdf}.
     """
-    patron = os.path.join(ASSETS_DIR, "11_IDEALES_I_*_I_*.pdf")
+    patron = os.path.join(ASSETS_DIR, "/Users/pelayoquiros/Desktop/Proyect/Grupo Orlegi/STREAMLIT/GrupoOrlegi/assets/11_IDEALES_I_OCTUBRE_I_2025.pdf")
     rutas = glob.glob(patron)
 
     pdfs = {}
