@@ -1623,23 +1623,29 @@ def draw_position_table(
 
     total_h = n * row_h
 
+
+
     # --- TÍTULO ARRIBA (fuera de la tarjeta) ---
     # TÍTULO ARRIBA – fondo azul, borde oscuro, texto blanco
+# Coordenada izquierda EXACTA de la tarjeta blanca
+    card_x = x - width / 2
+
+    # --- TÍTULO ARRIBA ---
     title_box = FancyBboxPatch(
-        (x - width/2 + 1.0, y + total_h/2 + title_gap - 1.3),
-        width - 2.0,        # ancho del título
-        2.4,                # alto del título
+        (card_x, y + total_h/2 + title_gap - 1.3),  # MISMO x que la tarjeta
+        width,                                      # MISMO ancho que la tarjeta
+        2.4,
         boxstyle="round,pad=0.25,rounding_size=0.9",
         linewidth=1.2,
-        edgecolor="#0e2841",   # contorno oscuro
-        facecolor="#0e2841",   # azul Orlegi
+        edgecolor="#0e2841",
+        facecolor="#0e2841",
         zorder=1000,
         clip_on=False
     )
     ax.add_patch(title_box)
 
     ax.text(
-        x,
+        x,                                          # centro igual
         y + total_h/2 + title_gap,
         str(title).upper(),
         ha="center",
@@ -1763,8 +1769,8 @@ def dibujar_campograma_defensivo(rankings, score_cols, temporada, liga_str):
     posiciones_campo = {
         "Portero": (5, 40),
         "Lateral izquierdo": (25, 75),
-        "DFC Izquierdo": (25, 25),
-        "DFC Derecho": (25, 55),
+        "DFC Izquierdo": (25, 55),
+        "DFC Derecho": (25, 25),
         "Lateral derecho": (25, 2),
         "MC Contención": (60, 20),
         "MC Box to Box": (60, 60),
@@ -2175,6 +2181,8 @@ def app():
             tabla_gk = pd.DataFrame(columns=cols_exist)
         else:
             tabla_gk = rankings["Portero"][cols_exist].head(10)
+
+            
         mostrar_tabla_aggrid(tabla_gk, key="tabla_porteros", df_base=rankings["Portero"])
     else:
         st.write("No hay columnas de porteros disponibles en el dataset.")
