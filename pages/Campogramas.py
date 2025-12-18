@@ -1603,37 +1603,43 @@ def _pct_border_color(pct):
         return "#f2c200"   # amarillo
     return "#d7263d"       # rojo
 
+def truncate_text(txt, max_chars: int):
+    """
+    Corta el texto para que NO se desborde.
+    Ej: "Aaron Yaakobishvili" -> "Aaron Yaakob..."
+    """
+    if txt is None:
+        return ""
+    s = str(txt).strip()
+    if len(s) <= max_chars:
+        return s
+    # deja hueco para "..."
+    return s[: max(0, max_chars - 3)].rstrip() + "..."
+
+
 
 def draw_position_table(
     ax, x, y, title, rows,
-    width=30,             # 👈 más pequeña
-    row_h=3.6,            # 👈 más compacta
+    width=30,
+    row_h=3.6,
     pct_w=5.0,
     pad=0.55,
-    title_gap=2.0,        # separación entre título y tarjeta
+    title_gap=2.0,
 ):
     """
-    rows = [(jugador, equipo, percentil), ...]
-    Coordenadas pitch statsbomb: x 0-120, y 0-80
+    rows = [(jugador, equipo, minutos, percentil), ...]
     """
-
     n = len(rows)
     if n == 0:
         return
 
     total_h = n * row_h
 
-
-
-    # --- TÍTULO ARRIBA (fuera de la tarjeta) ---
-    # TÍTULO ARRIBA – fondo azul, borde oscuro, texto blanco
-# Coordenada izquierda EXACTA de la tarjeta blanca
-    card_x = x - width / 2
-
     # --- TÍTULO ARRIBA ---
+    card_x = x - width / 2
     title_box = FancyBboxPatch(
-        (card_x, y + total_h/2 + title_gap - 1.3),  # MISMO x que la tarjeta
-        width,                                      # MISMO ancho que la tarjeta
+        (card_x, y + total_h/2 + title_gap - 1.3),
+        width,
         2.4,
         boxstyle="round,pad=0.25,rounding_size=0.9",
         linewidth=1.2,
@@ -1645,20 +1651,19 @@ def draw_position_table(
     ax.add_patch(title_box)
 
     ax.text(
-        x,                                          # centro igual
+        x,
         y + total_h/2 + title_gap,
         str(title).upper(),
         ha="center",
         va="center",
-        fontsize=9.0,
+        fontsize=8.1,   # 👈 MÁS PEQUEÑO
         fontweight="bold",
         color="white",
         zorder=1001,
         clip_on=False
     )
 
-
-    # --- TARJETA BASE (sin header interno) ---
+    # --- TARJETA BASE ---
     card = FancyBboxPatch(
         (x - width/2, y - total_h/2),
         width, total_h,
@@ -1666,48 +1671,57 @@ def draw_position_table(
         linewidth=0.9,
         edgecolor="#00000022",
         facecolor="white",
-        alpha=0.96,
+        alpha=0.99,
         zorder=999,
         clip_on=False
     )
     ax.add_patch(card)
 
-    # Columnas
+    # ===== Columnas: Jugador | Equipo | Minutos | Percentil =====
     x_left = x - width/2
     x_right = x + width/2
-    x_pct_left = x_right - pct_w
-    x_team_right = x_pct_left
 
-    # Separador vertical antes de percentil
-    ax.plot(
-        [x_pct_left, x_pct_left],
-        [y - total_h/2, y + total_h/2],
-        color="#00000022", linewidth=1,
-        zorder=1001,
-        clip_on=False
-    )
+    mins_w = 7.0
+    x_pct_left = x_right - pct_w
+    x_mins_left = x_pct_left - mins_w
+    x_team_right = x_mins_left
+
+    # Separadores verticales
+    for x_sep in [x_team_right, x_mins_left, x_pct_left]:
+        ax.plot(
+            [x_sep, x_sep],
+            [y - total_h/2, y + total_h/2],
+            color="#00000022",
+            linewidth=1,
+            zorder=1001,
+            clip_on=False
+        )
 
     # Filas
     top_y = y + total_h/2
-    for i, (jug, eq, pct) in enumerate(rows):
+    for i, (jug, eq, mins, pct) in enumerate(rows):
         y_row_bottom = top_y - (i + 1) * row_h
-        y_row_center = y_row_bottom + row_h/2
+        y_row_center = y_row_bottom + row_h / 2
 
-        # línea separadora horizontal
+        # Separador horizontal
         ax.plot(
             [x_left, x_right],
             [y_row_bottom, y_row_bottom],
-            color="#00000022", linewidth=1,
+            color="#00000022",
+            linewidth=1,
             zorder=1001,
             clip_on=False
         )
 
         # Jugador
         ax.text(
-            x_left + pad, y_row_center,
-            str(jug),
-            ha="left", va="center",
-            fontsize=7.2, fontweight="bold",
+            x_left + pad,
+            y_row_center,
+            truncate_text(jug, 14),
+            ha="left",
+            va="center",
+            fontsize=6.2,   # 👈 MÁS PEQUEÑO
+            fontweight="bold",
             color="#111",
             zorder=1002,
             clip_on=False
@@ -1715,21 +1729,43 @@ def draw_position_table(
 
         # Equipo
         ax.text(
-            x_team_right - pad, y_row_center,
-            str(eq),
-            ha="right", va="center",
-            fontsize=6.9,
+            x_team_right - pad,
+            y_row_center,
+            truncate_text(eq, 14),
+            ha="right",
+            va="center",
+            fontsize=5.8,   # 👈 MÁS PEQUEÑO
             color="#111",
             zorder=1002,
             clip_on=False
         )
 
-        # Badge percentil blanco con borde de color
-        border = _pct_border_color(pct)
+        # Minutos
+        mins_txt = ""
+        if mins is not None and mins != "" and pd.notna(mins):
+            try:
+                mins_txt = f"{int(mins)}"
+            except:
+                mins_txt = str(mins)
 
+        ax.text(
+            (x_mins_left + x_pct_left) / 2,
+            y_row_center,
+            mins_txt,
+            ha="center",
+            va="center",
+            fontsize=5.8,   # 👈 MÁS PEQUEÑO
+            color="#111",
+            zorder=1002,
+            clip_on=False
+        )
+
+        # Percentil
+        border = _pct_border_color(pct)
         badge = FancyBboxPatch(
             (x_pct_left + 0.55, y_row_bottom + 0.55),
-            pct_w - 1.10, row_h - 1.10,
+            pct_w - 1.10,
+            row_h - 1.10,
             boxstyle="round,pad=0.12,rounding_size=0.55",
             linewidth=2.0,
             edgecolor=border,
@@ -1740,14 +1776,21 @@ def draw_position_table(
         ax.add_patch(badge)
 
         ax.text(
-            x_pct_left + pct_w/2, y_row_center,
+            x_pct_left + pct_w / 2,
+            y_row_center,
             "" if pct is None else str(int(pct)),
-            ha="center", va="center",
-            fontsize=8.0, fontweight="bold",
+            ha="center",
+            va="center",
+            fontsize=7.0,   # 👈 MÁS PEQUEÑO
+            fontweight="bold",
             color="#111",
             zorder=1004,
             clip_on=False
         )
+
+
+
+
 
 
 def dibujar_campograma_defensivo(rankings, score_cols, temporada, liga_str):
@@ -1777,7 +1820,7 @@ def dibujar_campograma_defensivo(rankings, score_cols, temporada, liga_str):
         "MC Ofensivo": (75, 40),
         "Extremo Izquierdo": (100, 75),
         "Delantero": (110, 40),
-        "Extremo Derecho": (100, 5),
+        "Extremo Derecho": (100, 2),
     }
 
     if all(df_pos.empty for df_pos in rankings.values()):
@@ -1804,12 +1847,16 @@ def dibujar_campograma_defensivo(rankings, score_cols, temporada, liga_str):
         for _, r in top_df.iterrows():
             jugador = r.get("Jugador", "")
             equipo = r.get("Equipo", "")
+            mins = r.get("Minutos jugados", None)
+
             pct = None
             if pct_col and pct_col in top_df.columns:
                 val = r.get(pct_col, None)
                 if pd.notna(val):
                     pct = int(val)
-            rows.append((jugador, equipo, pct))
+
+            rows.append((jugador, equipo, mins, pct))
+
 
         # ✅ Caja pequeña + título arriba
         draw_position_table(
