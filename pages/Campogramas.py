@@ -1318,27 +1318,40 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         if "Percentil Score Segundo Delantero" in tabla.columns:
             gb.configure_column("Percentil Score Segundo Delantero", cellStyle=CELLSTYLE_SCORE_DEL_SEGUNDO_JS)
 
+        # (DEL_DELANTERO) -> Blues
         cols_del = [c for c in tabla.columns if "(DEL_DELANTERO)" in c]
         for col in cols_del:
             s = pd.to_numeric(df_base[col], errors="coerce")
-            if not s.dropna().empty:
-                gb.configure_column(col, cellStyle=crear_cmap_js("Blues", float(s.min()), float(s.max())))
+            if s.dropna().empty:
+                continue
+            vmin, vmax = float(s.min()), float(s.max())
+            inv = is_negative_metric(col)  # por si hay "Pérdidas" / "Fallidas"
+            gb.configure_column(col, cellStyle=crear_cmap_js("Blues", vmin, vmax, invert=inv))
 
-    cols_del9 = [c for c in tabla.columns if "(DEL_9)" in c]
-    inv_del9_tokens = ["xG por Goles sin Penaltis"]
-    for col in cols_del9:
-        s = pd.to_numeric(df_base[col], errors="coerce")
-        if s.dropna().empty:
-            continue
-        vmin, vmax = float(s.min()), float(s.max())
-        if any(tok in col for tok in inv_del9_tokens):
-            gb.configure_column(col, cellStyle=crear_cmap_js("Reds", vmin, vmax, invert=True))
-        else:
-            gb.configure_column(col, cellStyle=crear_cmap_js("Reds", vmin, vmax))
+        # (DEL_9) -> Reds (con excepción invertida + negativos)
+        cols_del9 = [c for c in tabla.columns if "(DEL_9)" in c]
+        inv_del9_tokens = ["xG por Goles sin Penaltis"]
+        for col in cols_del9:
+            s = pd.to_numeric(df_base[col], errors="coerce")
+            if s.dropna().empty:
+                continue
+            vmin, vmax = float(s.min()), float(s.max())
+            inv = any(tok in col for tok in inv_del9_tokens) or is_negative_metric(col)
+            gb.configure_column(col, cellStyle=crear_cmap_js("Reds", vmin, vmax, invert=inv))
+
+        # ✅ (DEL_SEGUNDO) -> Greens  (AQUÍ estaba el fallo: no lo estabas pintando)
+        cols_seg = [c for c in tabla.columns if "(DEL_SEGUNDO)" in c]
+        for col in cols_seg:
+            s = pd.to_numeric(df_base[col], errors="coerce")
+            if s.dropna().empty:
+                continue
+            vmin, vmax = float(s.min()), float(s.max())
+            inv = is_negative_metric(col)
+            gb.configure_column(col, cellStyle=crear_cmap_js("Greens", vmin, vmax, invert=inv))
 
     grid_options = gb.build()
 
-        # =========================
+    # =========================
     # Limpieza de headers (quitar lo que hay entre paréntesis)
     # =========================
     for coldef in grid_options.get("columnDefs", []):
@@ -1346,6 +1359,10 @@ def mostrar_tabla_aggrid(df_tabla: pd.DataFrame, key: str, df_base: pd.DataFrame
         if field:
             coldef["headerName"] = limpiar_header(field)
 
+
+    # ❌ NO autosize (porque queremos 200 fijo)
+    num_rows = len(tabla)
+    grid_height = 60 + 30 * min(num_rows, 10)
 
     # ❌ NO autosize (porque queremos 200 fijo)
     num_rows = len(tabla)
