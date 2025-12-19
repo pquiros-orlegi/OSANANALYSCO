@@ -5,11 +5,17 @@ from pathlib import Path
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # =========================
-# UTILIDADES IMÁGENES
+# UTILIDADES IMÁGENES (robusto si falta el archivo)
 # =========================
-def get_image_base64(path: str) -> str:
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
+def get_image_base64(path: str) -> str | None:
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        with open(p, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return None
 
 FONDO_PATH = "data/Captura de pantalla 2025-11-24 a las 16.52.04.png"
 LOGO_PATH  = "data/logo.png"
@@ -28,8 +34,24 @@ st.set_page_config(
 )
 
 # =========================
-# CSS (TU ESTÉTICA, IGUAL)
+# CSS (tu estética)
 # =========================
+bg_div = ""
+bg_css = ""
+if fondo_base64:
+    bg_css = f"""
+    .background-image {{
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/png;base64,{fondo_base64}");
+        background-size: cover;
+        background-position: center;
+        opacity: 0.4;
+        z-index: 0;
+    }}
+    """
+    bg_div = """<div class="background-image"></div>"""
+
 st.markdown(
     f"""
     <style>
@@ -53,17 +75,11 @@ st.markdown(
 
     main.block-container {{
         padding-top: 0 !important;
+        position: relative;
+        z-index: 1; /* encima del fondo */
     }}
 
-    .background-image {{
-        position: fixed;
-        inset: 0;
-        background-image: url("data:image/png;base64,{fondo_base64}");
-        background-size: cover;
-        background-position: center;
-        opacity: 0.4;
-        z-index: 0;
-    }}
+    {bg_css}
 
     .login-box {{
         background-color: var(--orlegi-dark);
@@ -90,25 +106,30 @@ st.markdown(
     }}
     </style>
 
-    <div class="background-image"></div>
+    {bg_div}
     """,
     unsafe_allow_html=True
 )
 
 # =========================
-# BASE DE DATOS
+# BASE DE DATOS (SQLite)
 # =========================
-DB_PATH = "data/usuarios.db"
-Path("data").mkdir(exist_ok=True)
+DATA_DIR = Path("data")
+DATA_DIR.mkdir(exist_ok=True)
+DB_PATH = str(DATA_DIR / "usuarios.db")
+
+def db_connect():
+    # timeout ayuda en Cloud si hay locks breves
+    return sqlite3.connect(DB_PATH, timeout=30)
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = db_connect()
     c = conn.cursor()
     c.execute("""
     CREATE TABLE IF NOT EXISTS usuarios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        usuario TEXT UNIQUE,
-        password TEXT,
+        usuario TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
         rol TEXT DEFAULT 'user',
         forzar_cambio INTEGER DEFAULT 1
     )
@@ -116,8 +137,12 @@ def init_db():
     conn.commit()
     conn.close()
 
-def crear_usuario(usuario, password, rol="user"):
-    conn = sqlite3.connect(DB_PATH)
+def crear_usuario_si_no_existe(usuario: str, password: str, rol: str = "user"):
+    """
+    Inserta solo si no existe. NO ocultamos errores reales.
+    """
+    usuario = normalizar_usuario(usuario)
+    conn = db_connect()
     c = conn.cursor()
     try:
         c.execute(
@@ -126,33 +151,37 @@ def crear_usuario(usuario, password, rol="user"):
             (usuario, generate_password_hash(password), rol)
         )
         conn.commit()
-    except:
+    except sqlite3.IntegrityError:
+        # usuario ya existe
         pass
-    conn.close()
+    finally:
+        conn.close()
 
-def get_user(usuario):
-    conn = sqlite3.connect(DB_PATH)
+def get_user(usuario: str):
+    usuario = normalizar_usuario(usuario)
+    conn = db_connect()
     c = conn.cursor()
     c.execute(
-        "SELECT usuario, password, forzar_cambio FROM usuarios WHERE usuario=?",
+        "SELECT usuario, password, forzar_cambio, rol FROM usuarios WHERE usuario=?",
         (usuario,)
     )
     row = c.fetchone()
     conn.close()
-    return row
+    return row  # (usuario, password_hash, forzar_cambio, rol)
 
-def verificar_login(usuario, password):
+def verificar_login(usuario: str, password: str) -> bool:
     user = get_user(usuario)
     if user:
         return check_password_hash(user[1], password)
     return False
 
-def debe_cambiar_password(usuario):
+def debe_cambiar_password(usuario: str) -> bool:
     user = get_user(usuario)
-    return user and user[2] == 1
+    return bool(user) and int(user[2]) == 1
 
-def cambiar_password(usuario, nueva):
-    conn = sqlite3.connect(DB_PATH)
+def cambiar_password(usuario: str, nueva: str):
+    usuario = normalizar_usuario(usuario)
+    conn = db_connect()
     c = conn.cursor()
     c.execute(
         """UPDATE usuarios
@@ -163,19 +192,34 @@ def cambiar_password(usuario, nueva):
     conn.commit()
     conn.close()
 
+def normalizar_usuario(usuario: str) -> str:
+    # evita fallos por espacios/mayúsculas
+    return (usuario or "").strip().lower()
+
+def seed_usuarios_iniciales():
+    """
+    IMPORTANTE: solo sembrar si la tabla está vacía.
+    Así NO dependes de reruns.
+    """
+    conn = db_connect()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM usuarios")
+    n = c.fetchone()[0]
+    conn.close()
+
+    if n > 0:
+        return
+
+    usuarios = [
+        "admin","rpuerta","pquiros","ivillaseñor",
+        "jriestra","ggarcia","jmhernandez",
+        "flobeiras","mromero"
+    ]
+    for u in usuarios:
+        crear_usuario_si_no_existe(u, "Orlegi2025", "admin" if u == "admin" else "user")
+
 init_db()
-
-# =========================
-# USUARIOS INICIALES
-# =========================
-usuarios = [
-    "admin","rpuerta","pquiros","ivillaseñor",
-    "jriestra","ggarcia","jmhernandez",
-    "flobeiras","mromero"
-]
-
-for u in usuarios:
-    crear_usuario(u, "Orlegi2025", "admin" if u == "admin" else "user")
+seed_usuarios_iniciales()
 
 # =========================
 # SESSION STATE
@@ -207,19 +251,21 @@ if not st.session_state.logueado:
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        f"""
-        <div style="text-align:center; margin-bottom:1.5rem;">
-            <img src="data:image/png;base64,{logo_base64}" style="width:260px;">
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    if logo_base64:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin-bottom:1.5rem;">
+                <img src="data:image/png;base64,{logo_base64}" style="width:260px;">
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-    usuario = st.text_input("Usuario")
+    usuario_raw = st.text_input("Usuario")
     contrasena = st.text_input("Contraseña", type="password")
 
     if st.button("Acceder"):
+        usuario = normalizar_usuario(usuario_raw)
         if verificar_login(usuario, contrasena):
             st.session_state.logueado = True
             st.session_state.usuario_actual = usuario
@@ -241,14 +287,15 @@ if st.session_state.forzar_cambio:
     confirmar = st.text_input("Confirmar nueva contraseña", type="password")
 
     if st.button("Guardar nueva contraseña"):
-        if not verificar_login(st.session_state.usuario_actual, actual):
+        u = st.session_state.usuario_actual
+        if not verificar_login(u, actual):
             st.error("Contraseña actual incorrecta")
         elif nueva != confirmar:
             st.error("No coinciden")
         elif len(nueva) < 8:
             st.error("Mínimo 8 caracteres")
         else:
-            cambiar_password(st.session_state.usuario_actual, nueva)
+            cambiar_password(u, nueva)
             st.session_state.forzar_cambio = False
             st.success("Contraseña actualizada correctamente")
             st.rerun()
@@ -258,14 +305,15 @@ if st.session_state.forzar_cambio:
 # =========================
 # PANEL NORMAL
 # =========================
-st.markdown(
-    f"""
-    <div style="position:fixed; top:30px; right:30px; z-index:1000;">
-        <img src="data:image/png;base64,{logo_base64}" style="width:180px;">
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+if logo_base64:
+    st.markdown(
+        f"""
+        <div style="position:fixed; top:30px; right:30px; z-index:1000;">
+            <img src="data:image/png;base64,{logo_base64}" style="width:180px;">
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 st.success(f"Bienvenido {st.session_state.usuario_actual}")
 
@@ -274,4 +322,3 @@ if st.sidebar.button("🚪 Cerrar sesión"):
     st.session_state.usuario_actual = None
     st.session_state.forzar_cambio = False
     st.rerun()
-
