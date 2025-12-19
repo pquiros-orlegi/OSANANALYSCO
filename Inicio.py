@@ -1,16 +1,15 @@
 import streamlit as st
-import pandas as pd
-import os
-import time
-from datetime import datetime
 import base64
-from PIL import Image  # si luego no lo usas, lo puedes quitar
+import sqlite3
+from pathlib import Path
+from werkzeug.security import generate_password_hash, check_password_hash
 
-
+# =========================
+# UTILIDADES IMÁGENES
+# =========================
 def get_image_base64(path: str) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
-
 
 FONDO_PATH = "data/Captura de pantalla 2025-11-24 a las 16.52.04.png"
 LOGO_PATH  = "data/logo.png"
@@ -18,9 +17,8 @@ LOGO_PATH  = "data/logo.png"
 fondo_base64 = get_image_base64(FONDO_PATH)
 logo_base64  = get_image_base64(LOGO_PATH)
 
-
 # =========================
-# ✅ CONFIGURAR PÁGINA (ancho completo)
+# CONFIG STREAMLIT
 # =========================
 st.set_page_config(
     page_title="Grupo Orlegi - Panel",
@@ -30,7 +28,7 @@ st.set_page_config(
 )
 
 # =========================
-# ✅ CSS GLOBAL (estilo consistente local/cloud)
+# CSS (TU ESTÉTICA, IGUAL)
 # =========================
 st.markdown(
     f"""
@@ -44,84 +42,50 @@ st.markdown(
     }}
 
     html, body, .stApp {{
-        margin: 0;
-        padding: 0;
         height: 100%;
-        overscroll-behavior: none;
         color: var(--orlegi-text);
-        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        font-family: ui-sans-serif, system-ui;
     }}
 
-    /* Ocultar barra superior de Streamlit (Deploy, menú, etc.) */
-    header[data-testid="stHeader"],
-    .stApp header,
-    [data-testid="stToolbar"] {{
+    header, footer {{
         display: none !important;
-        visibility: hidden !important;
-        height: 0 !important;
     }}
 
-    /* Quitar espacio superior que deja la cabecera */
     main.block-container {{
         padding-top: 0 !important;
-        margin-top: 0 !important;
     }}
 
-    /* Fondo general */
     .background-image {{
         position: fixed;
-        top: 0;
-        left: 0;
-        height: 100%;
-        width: 100%;
+        inset: 0;
         background-image: url("data:image/png;base64,{fondo_base64}");
         background-size: cover;
         background-position: center;
-        opacity: 0.40;
+        opacity: 0.4;
         z-index: 0;
     }}
 
-    .main-content {{
-        position: relative;
-        z-index: 2;
-    }}
-
-    /* Caja / tarjetas */
     .login-box {{
         background-color: var(--orlegi-dark);
         border-radius: 1rem;
-        box-shadow: 0px 0px 25px rgba(0,0,0,0.4);
+        box-shadow: 0 0 25px rgba(0,0,0,.4);
+        padding: 2rem;
+        max-width: 420px;
+        margin: auto;
     }}
 
-    .orlegi-card {{
-        background-color: var(--orlegi-card);
-        color: var(--orlegi-text);
-        border-radius: 16px;
-        padding: 16px 20px;
-    }}
-
-    .orlegi-tag {{
-        background-color: var(--orlegi-primary);
-        color: white;
-        padding: 4px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-        display: inline-block;
-    }}
-
-    /* Botones azules */
     div.stButton > button:first-child {{
         background-color: var(--orlegi-primary);
         color: white;
         border-radius: 8px;
         border: 1px solid var(--orlegi-primary);
     }}
+
     div.stButton > button:first-child:hover {{
         background-color: var(--orlegi-primary-hover);
-        border-color: var(--orlegi-primary-hover);
     }}
 
-    label, .stTextInput label, .stPasswordInput label {{
+    label {{
         color: white !important;
     }}
     </style>
@@ -131,147 +95,183 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# =========================
+# BASE DE DATOS
+# =========================
+DB_PATH = "data/usuarios.db"
+Path("data").mkdir(exist_ok=True)
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS usuarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        usuario TEXT UNIQUE,
+        password TEXT,
+        rol TEXT DEFAULT 'user',
+        forzar_cambio INTEGER DEFAULT 1
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+def crear_usuario(usuario, password, rol="user"):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    try:
+        c.execute(
+            """INSERT INTO usuarios (usuario, password, rol, forzar_cambio)
+               VALUES (?, ?, ?, 1)""",
+            (usuario, generate_password_hash(password), rol)
+        )
+        conn.commit()
+    except:
+        pass
+    conn.close()
+
+def get_user(usuario):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT usuario, password, forzar_cambio FROM usuarios WHERE usuario=?",
+        (usuario,)
+    )
+    row = c.fetchone()
+    conn.close()
+    return row
+
+def verificar_login(usuario, password):
+    user = get_user(usuario)
+    if user:
+        return check_password_hash(user[1], password)
+    return False
+
+def debe_cambiar_password(usuario):
+    user = get_user(usuario)
+    return user and user[2] == 1
+
+def cambiar_password(usuario, nueva):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        """UPDATE usuarios
+           SET password=?, forzar_cambio=0
+           WHERE usuario=?""",
+        (generate_password_hash(nueva), usuario)
+    )
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # =========================
-# ESTADO DE SESIÓN
+# USUARIOS INICIALES
+# =========================
+usuarios = [
+    "admin","rpuerta","pquiros","ivillaseñor",
+    "jriestra","ggarcia","jmhernandez",
+    "flobeiras","mromero"
+]
+
+for u in usuarios:
+    crear_usuario(u, "Orlegi2025", "admin" if u == "admin" else "user")
+
+# =========================
+# SESSION STATE
 # =========================
 if "logueado" not in st.session_state:
     st.session_state.logueado = False
 if "usuario_actual" not in st.session_state:
     st.session_state.usuario_actual = None
+if "forzar_cambio" not in st.session_state:
+    st.session_state.forzar_cambio = False
 
-
-# Credenciales válidas (provisional)
-USUARIOS_VALIDOS = {
-    "admin": "1234",
-    "Ruben.puerta": "Orlegi2025",
-    "Pelayo.quiros": "Orlegi2025",
-    "Israel.villaseñor": "Orlegi2025",
-    "Jose.riestra": "Orlegi2025",
-    "Gerardo": "Orlegi2025"
-}
-
-
-
-# -------------------------------
-# 🔐 LOGIN (con fondo restaurado)
-# -------------------------------
+# =========================
+# LOGIN
+# =========================
 if not st.session_state.logueado:
 
     st.markdown(
-        f"""
+        """
         <style>
-        body, html, .stApp {{
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            overscroll-behavior: none;
-        }}
-
-        /* Fondo del login */
-        .background-image-login {{
-            position: fixed;
-            top: 0;
-            left: 0;
-            height: 100%;
-            width: 100%;
-            background-image: url("data:image/png;base64,{fondo_base64}");
-            background-size: cover;
-            background-position: center;
-            opacity: 0.99;
-            z-index: 0;
-        }}
-
-        /* Contenedor login */
-        .login-container {{
-            position: relative;
-            z-index: 2;
-        }}
-
-        #MainMenu, footer {{
-            visibility: hidden;
-        }}
-
-        /* Ocultamos sidebar mientras NO está logueado */
-        [data-testid="stSidebar"],
-        [data-testid="stSidebarNav"],
-        [data-testid="stSidebarToggle"] {{
-            display: none !important;
-        }}
-
-        .block-container {{
+        [data-testid="stSidebar"] { display: none !important; }
+        .block-container {
             display: flex;
             justify-content: center;
             align-items: center;
             height: 90vh;
-            flex-direction: column;
-        }}
-
-        .login-box {{
-            width: 100%;
-            max-width: 420px;
-            padding: 2rem;
-            border-radius: 1rem;
-            background-color: var(--orlegi-dark);
-            box-shadow: 0px 0px 25px rgba(0,0,0,0.4);
-        }}
+        }
         </style>
-
-        <div class="background-image-login"></div>
         """,
         unsafe_allow_html=True
     )
 
-    # ---- INTERFAZ DEL LOGIN ----
-    with st.container():
-        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div style="text-align:center; margin-bottom:1.5rem;">
+            <img src="data:image/png;base64,{logo_base64}" style="width:260px;">
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-        st.markdown(
-            f"""
-            <div style="margin-bottom: 1.5rem; text-align:center;">
-                <img src="data:image/png;base64,{logo_base64}"
-                     style="width: 260px; border-radius: 10px;">
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+    usuario = st.text_input("Usuario")
+    contrasena = st.text_input("Contraseña", type="password")
 
-        st.markdown(
-            "<h4 style='text-align:center; color:white; margin-bottom: 1rem;'>Analytics / Scouting</h4>",
-            unsafe_allow_html=True
-        )
-
-        usuario = st.text_input("Usuario")
-        contrasena = st.text_input("Contraseña", type="password")
-
-        if st.button("Acceder"):
-            if usuario in USUARIOS_VALIDOS and USUARIOS_VALIDOS[usuario] == contrasena:
-                st.session_state.logueado = True
-                st.session_state.usuario_actual = usuario
-
-                # 🚀 Redirigir correctamente
-                st.switch_page("pages/Campogramas.py")
-            else:
-                st.error("❌ Usuario o contraseña incorrectos.")
+    if st.button("Acceder"):
+        if verificar_login(usuario, contrasena):
+            st.session_state.logueado = True
+            st.session_state.usuario_actual = usuario
+            st.session_state.forzar_cambio = debe_cambiar_password(usuario)
+            st.rerun()
+        else:
+            st.error("❌ Usuario o contraseña incorrectos")
 
     st.stop()
 
+# =========================
+# FORZAR CAMBIO PRIMER LOGIN
+# =========================
+if st.session_state.forzar_cambio:
+    st.warning("⚠️ Debes cambiar tu contraseña antes de continuar")
+
+    actual = st.text_input("Contraseña actual", type="password")
+    nueva = st.text_input("Nueva contraseña", type="password")
+    confirmar = st.text_input("Confirmar nueva contraseña", type="password")
+
+    if st.button("Guardar nueva contraseña"):
+        if not verificar_login(st.session_state.usuario_actual, actual):
+            st.error("Contraseña actual incorrecta")
+        elif nueva != confirmar:
+            st.error("No coinciden")
+        elif len(nueva) < 8:
+            st.error("Mínimo 8 caracteres")
+        else:
+            cambiar_password(st.session_state.usuario_actual, nueva)
+            st.session_state.forzar_cambio = False
+            st.success("Contraseña actualizada correctamente")
+            st.rerun()
+
+    st.stop()
 
 # =========================
-# 🖼️ Logo superior (panel)
+# PANEL NORMAL
 # =========================
 st.markdown(
     f"""
-    <div style="
-        position: fixed;
-        top: 30px;
-        right: 30px;
-        z-index: 1000;
-    ">
-        <img src="data:image/png;base64,{logo_base64}"
-             alt="Logo Grupo Orlegi"
-             style="width: 180px; border-radius: 6px;">
+    <div style="position:fixed; top:30px; right:30px; z-index:1000;">
+        <img src="data:image/png;base64,{logo_base64}" style="width:180px;">
     </div>
     """,
     unsafe_allow_html=True
 )
+
+st.success(f"Bienvenido {st.session_state.usuario_actual}")
+
+if st.sidebar.button("🚪 Cerrar sesión"):
+    st.session_state.logueado = False
+    st.session_state.usuario_actual = None
+    st.session_state.forzar_cambio = False
+    st.rerun()
+
